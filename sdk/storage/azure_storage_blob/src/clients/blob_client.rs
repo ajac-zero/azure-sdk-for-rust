@@ -565,4 +565,126 @@ impl BlobClient {
     ) -> Result<Response<BlobClientCreateSnapshotResult, NoFormat>> {
         self.client.create_snapshot(options).await
     }
+
+    /// Generates a user delegation SAS URL for this blob.
+    ///
+    /// A SAS (Shared Access Signature) provides a way to grant limited access to a blob
+    /// without sharing your account credentials. User delegation SAS tokens are signed with
+    /// Entra ID credentials for enhanced security.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_delegation_key` - The user delegation key obtained from `BlobServiceClient::get_user_delegation_key()`
+    /// * `permissions` - The permissions to grant (e.g., `SasPermissions::read()`)
+    /// * `expiry` - When the SAS token expires
+    ///
+    /// # Returns
+    ///
+    /// A URL with SAS query parameters that can be used to access the blob
+    /// without additional authentication until the expiry time.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use azure_storage_blob::{BlobServiceClient, sas::SasPermissions};
+    /// # use azure_identity::DefaultAzureCredential;
+    /// # use azure_core::time::OffsetDateTime;
+    /// # use std::{sync::Arc, time::Duration};
+    /// # async fn example() -> azure_core::Result<()> {
+    /// # let credential = Arc::new(DefaultAzureCredential::new()?);
+    /// # let service_client = BlobServiceClient::new(
+    /// #     "https://myaccount.blob.core.windows.net",
+    /// #     Some(credential),
+    /// #     None,
+    /// # )?;
+    /// // Get user delegation key first
+    /// let key_start = OffsetDateTime::now_utc();
+    /// let key_expiry = key_start + Duration::from_secs(3600);
+    /// let key = service_client
+    ///     .get_user_delegation_key(key_start, key_expiry, None)
+    ///     .await?
+    ///     .into_model()?;
+    ///
+    /// // Generate SAS URL
+    /// let blob_client = service_client
+    ///     .blob_container_client("mycontainer")
+    ///     .blob_client("myblob.txt");
+    ///
+    /// let sas_url = blob_client.generate_sas_url(
+    ///     &key,
+    ///     SasPermissions::read(),
+    ///     OffsetDateTime::now_utc() + Duration::from_secs(3600),
+    /// )?;
+    ///
+    /// // Use SAS URL without credentials
+    /// let sas_blob_client = azure_storage_blob::BlobClient::from_url(
+    ///     sas_url,
+    ///     None,
+    ///     None,
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn generate_sas_url(
+        &self,
+        user_delegation_key: &crate::generated::models::UserDelegationKey,
+        permissions: crate::sas::SasPermissions,
+        expiry: OffsetDateTime,
+    ) -> Result<Url> {
+        crate::sas::UserDelegationSasBuilder::new(user_delegation_key, permissions, expiry)
+            .build_blob_url(self.url())
+    }
+
+    /// Creates a builder for generating a user delegation SAS URL with custom options.
+    ///
+    /// This provides more control over the SAS token parameters, such as start time,
+    /// IP restrictions, protocol enforcement, and response header overrides.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_delegation_key` - The user delegation key obtained from `BlobServiceClient::get_user_delegation_key()`
+    /// * `permissions` - The permissions to grant
+    /// * `expiry` - When the SAS token expires
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use azure_storage_blob::{BlobServiceClient, sas::{SasPermissions, SasProtocol}};
+    /// # use azure_identity::DefaultAzureCredential;
+    /// # use azure_core::time::OffsetDateTime;
+    /// # use std::{sync::Arc, time::Duration};
+    /// # async fn example() -> azure_core::Result<()> {
+    /// # let credential = Arc::new(DefaultAzureCredential::new()?);
+    /// # let service_client = BlobServiceClient::new(
+    /// #     "https://myaccount.blob.core.windows.net",
+    /// #     Some(credential),
+    /// #     None,
+    /// # )?;
+    /// # let key_start = OffsetDateTime::now_utc();
+    /// # let key_expiry = key_start + Duration::from_secs(3600);
+    /// # let key = service_client
+    /// #     .get_user_delegation_key(key_start, key_expiry, None)
+    /// #     .await?
+    /// #     .into_model()?;
+    /// # let blob_client = service_client
+    /// #     .blob_container_client("mycontainer")
+    /// #     .blob_client("myblob.txt");
+    /// let expiry = OffsetDateTime::now_utc() + Duration::from_secs(3600);
+    ///
+    /// let sas_url = blob_client
+    ///     .sas_builder(&key, SasPermissions::read(), expiry)
+    ///     .with_protocol(SasProtocol::Https)
+    ///     .with_content_disposition("attachment; filename=\"file.txt\"")
+    ///     .build_blob_url(blob_client.url())?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn sas_builder<'a>(
+        &self,
+        user_delegation_key: &'a crate::generated::models::UserDelegationKey,
+        permissions: crate::sas::SasPermissions,
+        expiry: OffsetDateTime,
+    ) -> crate::sas::UserDelegationSasBuilder<'a> {
+        crate::sas::UserDelegationSasBuilder::new(user_delegation_key, permissions, expiry)
+    }
 }

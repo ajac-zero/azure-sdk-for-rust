@@ -13,6 +13,7 @@ mod generated;
 mod parsers;
 mod partitioned_transfer;
 mod pipeline;
+pub mod sas;
 mod streams;
 pub use clients::*;
 pub use parsers::*;

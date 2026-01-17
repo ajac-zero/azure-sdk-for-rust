@@ -4,7 +4,7 @@
 use crate::{
     generated::clients::BlobContainerClient as GeneratedBlobContainerClient,
     generated::clients::BlobServiceClient as GeneratedBlobServiceClient,
-    generated::models::BlobServiceClientGetAccountInfoResult,
+    generated::models::{BlobServiceClientGetAccountInfoResult, KeyInfo, UserDelegationKey},
     models::{
         BlobServiceClientFindBlobsByTagsOptions, BlobServiceClientGetAccountInfoOptions,
         BlobServiceClientGetPropertiesOptions, BlobServiceClientGetStatisticsOptions,
@@ -221,5 +221,81 @@ impl BlobServiceClient {
         options: Option<BlobServiceClientGetStatisticsOptions<'_>>,
     ) -> Result<Response<StorageServiceStats, XmlFormat>> {
         self.client.get_statistics(options).await
+    }
+
+    /// Retrieves a user delegation key for creating SAS tokens.
+    ///
+    /// The user delegation key is used to sign SAS tokens with Entra ID credentials
+    /// instead of storage account keys. This provides better security and auditability.
+    ///
+    /// User delegation keys are valid for up to 7 days from the start time.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - The date-time when the key becomes active
+    /// * `expiry` - The date-time when the key expires (maximum 7 days from start)
+    /// * `options` - Optional configuration for the request
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use azure_storage_blob::BlobServiceClient;
+    /// # use azure_identity::DefaultAzureCredential;
+    /// # use azure_core::time::OffsetDateTime;
+    /// # use std::{sync::Arc, time::Duration};
+    /// # async fn example() -> azure_core::Result<()> {
+    /// # let credential = Arc::new(DefaultAzureCredential::new()?);
+    /// # let service_client = BlobServiceClient::new(
+    /// #     "https://myaccount.blob.core.windows.net",
+    /// #     Some(credential),
+    /// #     None,
+    /// # )?;
+    /// let start = OffsetDateTime::now_utc();
+    /// let expiry = start + Duration::from_secs(3600); // 1 hour
+    ///
+    /// let key = service_client
+    ///     .get_user_delegation_key(start, expiry, None)
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_user_delegation_key(
+        &self,
+        start: azure_core::time::OffsetDateTime,
+        expiry: azure_core::time::OffsetDateTime,
+        options: Option<crate::models::BlobServiceClientGetUserDelegationKeyOptions<'_>>,
+    ) -> Result<Response<UserDelegationKey, XmlFormat>> {
+        // Format times in ISO 8601 / RFC 3339 format
+        let start_str = start
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(|e| {
+                azure_core::Error::with_message(
+                    azure_core::error::ErrorKind::DataConversion,
+                    format!("failed to format start time: {}", e),
+                )
+            })?;
+
+        let expiry_str = expiry
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(|e| {
+                azure_core::Error::with_message(
+                    azure_core::error::ErrorKind::DataConversion,
+                    format!("failed to format expiry time: {}", e),
+                )
+            })?;
+
+        // Create KeyInfo
+        let key_info = KeyInfo {
+            start: Some(start_str),
+            expiry: Some(expiry_str),
+        };
+
+        // Convert to RequestContent
+        let request_content = RequestContent::try_from(key_info)?;
+
+        // Call the generated client method
+        self.client
+            .get_user_delegation_key(request_content, options)
+            .await
     }
 }
